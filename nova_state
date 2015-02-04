@@ -1,0 +1,76 @@
+#!/usr/bin/python
+#coding: utf-8 -*-
+
+# (c) 2013, Benno Joy <benno@ansible.com>
+# (c) 2013, John Dewey <john@dewey.ws>
+#
+# This module is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This software is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this software.  If not, see <http://www.gnu.org/licenses/>.
+
+try:
+    from novaclient.v1_1 import client as nova_client
+    from novaclient import exceptions
+    import time
+except ImportError:
+    print("failed=True msg='novaclient is required for this module'")
+
+def _get_server_state(module, nova):
+    server = None
+    try:
+        servers = nova.servers.list(True, {'name': module.params['name']})
+        if servers:
+            # the {'name': module.params['name']} will also return servers
+            # with names that partially match the server name, so we have to
+            # strictly filter here
+            servers = [x for x in servers if x.name == module.params['name']]
+            if servers:
+                server = servers[0]
+    except Exception, e:
+        module.fail_json(msg = "Error in getting the server list: %s" % e.message)
+    if server:
+        if server.status != 'ACTIVE':
+            module.fail_json( msg="The VM is available but not Active. state:" + server.status)
+        private = [ x['addr'] for x in getattr(server, 'addresses').itervalues().next() if 'OS-EXT-IPS:type' in x and x['OS-EXT-IPS:type'] == 'fixed']
+        public  = [ x['addr'] for x in getattr(server, 'addresses').itervalues().next() if 'OS-EXT-IPS:type' in x and x['OS-EXT-IPS:type'] == 'floating']
+        module.exit_json(changed = False, id = server.id, public_ip = ''.join(public), private_ip = ''.join(private), info = server._info)
+    return True
+
+def main():
+    module = AnsibleModule(
+        argument_spec                   = dict(
+        login_username                  = dict(default='admin'),
+        login_password                  = dict(required=True),
+        login_tenant_name               = dict(required='True'),
+        auth_url                        = dict(default='http://127.0.0.1:35357/v2.0/'),
+        region_name                     = dict(default=None),
+        name                            = dict(required=True)
+        ),
+    )
+
+    nova = nova_client.Client(module.params['login_username'],
+                              module.params['login_password'],
+                              module.params['login_tenant_name'],
+                              module.params['auth_url'],
+                              service_type='compute')
+    try:
+        nova.authenticate()
+    except exceptions.Unauthorized, e:
+        module.fail_json(msg = "Invalid OpenStack Nova credentials.: %s" % e.message)
+    except exceptions.AuthorizationFailure, e:
+        module.fail_json(msg = "Unable to authorize user: %s" % e.message)
+
+    _get_server_state(module, nova)
+
+# this is magic, see lib/ansible/module.params['common.py
+from ansible.module_utils.basic import *
+main()
