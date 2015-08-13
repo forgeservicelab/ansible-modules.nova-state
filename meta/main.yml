@@ -2,7 +2,7 @@
 galaxy_info:
   author: Jorge Rodriguez
   description: Get the state of an OpenStack instance.
-  company: FORGE Service Lab
+  company: DIGILE Ltd.
   # Some suggested licenses:
   # - BSD (default)
   # - MIT
